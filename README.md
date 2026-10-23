@@ -104,6 +104,41 @@ Wardrik.Agent.define(scope, "acme/triage",
 Point the service at `https://agents.example.com/v1/hooks/acme/triage/issues`. See
 [Trigger agents](https://hexdocs.pm/wardrik/triggers.html) for how a request proves itself.
 
+## Run tools in your own process
+
+A tool worker is your own program offering agents tools. Its tools run in its process, with its code,
+data and keys, and it dials Wardrik, so Wardrik needs no way to reach it. Make it a token with the
+`worker` role, over the agents it serves:
+
+```elixir
+{:ok, issued} =
+  Wardrik.Tokens.create(scope, name: "shop", roles: ["worker"], resources: ["acme/agent/*"])
+```
+
+The worker opens a WebSocket to `/v1/workers` with that token, and answers as an MCP server does.
+Wardrik sends it `initialize` and `tools/list`, then a `tools/call` for each call an agent makes:
+
+```json
+{"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+ "params": {"name": "refund_order", "arguments": {"order": "A1"},
+            "_meta": {"agent": {"key": "acme/triage", "org": "acme", "name": "triage"},
+                      "principal": "acme/@maria", "idempotencyKey": "call_1"}}}
+```
+
+An agent names the tools workers offer as `workers/*`:
+
+```elixir
+Wardrik.Agent.define(scope, "acme/triage",
+  model: "anthropic:claude-haiku-4-5",
+  tools: ["workers/*"],
+  policy: [ask: ["workers/refund_order"]]
+)
+```
+
+The model sees it as `workers__refund_order`. A tool the worker doesn't mark `readOnlyHint` changes
+things, so the agent's policy decides it as it does any other. A result's `_meta.costUsd` is what
+the call cost, which a budget counts. See `WardrikHTTP.Worker` for the whole exchange.
+
 ## Sign people in
 
 Where your Wardrik signs people in, `/oauth/` serves the pages a sign-in comes back to. Set its

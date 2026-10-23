@@ -62,6 +62,7 @@ defmodule WardrikHTTP.MixProject do
       {:wardrik, path: "../wardrik"},
       {:plug, "~> 1.16"},
       {:bandit, "~> 1.5"},
+      {:websock_adapter, "~> 0.5"},
       {:mimic, "~> 2.4", only: :test},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

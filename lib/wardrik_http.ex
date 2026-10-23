@@ -17,8 +17,9 @@ defmodule WardrikHTTP do
   event stream waits on nothing before it sends a comment, 15 seconds unless set. As a child, it
   takes Bandit's options too, like `:port` and `:ip`.
 
-  `GET /v1/openapi.json` answers the OpenAPI document, and `/oauth/` serves the pages a sign-in
-  comes back to, where the Wardrik signs people in. Every answer carries a `request-id` header, the
+  `GET /v1/openapi.json` answers the OpenAPI document, `GET /v1/workers` is the WebSocket a tool
+  worker holds open (see `WardrikHTTP.Worker`), and `/oauth/` serves the pages a sign-in comes back
+  to, where the Wardrik signs people in. Every answer carries a `request-id` header, the
   caller's own where it sent one.
 
   Reach for this when people or programs outside your app talk to its agents.
@@ -63,6 +64,16 @@ defmodule WardrikHTTP do
   defp serve(%Plug.Conn{method: "GET", path_info: ["v1", "openapi.json"]} = conn, _settings),
     do: Response.json(conn, 200, WardrikProtocol.openapi())
 
+  defp serve(%Plug.Conn{method: "GET", path_info: ["v1", "workers"]} = conn, settings) do
+    with :ok <- upgradable(conn),
+         {:ok, scope} <- authenticate(conn, settings) do
+      worker = %{scope: scope, alive?: alive?(conn, settings), keepalive: settings.keepalive}
+      WebSockAdapter.upgrade(conn, WardrikHTTP.Worker, worker, [])
+    else
+      {:error, %Error{} = error} -> Response.error(conn, error)
+    end
+  end
+
   defp serve(%Plug.Conn{path_info: ["oauth" | rest]} = conn, %{wardrik: wardrik}),
     do: sign_in(conn, rest, Wardrik.sign_in_pages(wardrik))
 
@@ -101,8 +112,22 @@ defmodule WardrikHTTP do
   defp authenticate(_conn, %{subject: "hook"}, %{wardrik: wardrik}),
     do: {:ok, Wardrik.as(wardrik, "anonymous")}
 
-  defp authenticate(conn, _operation, %{wardrik: wardrik, authenticator: {module, config}}),
+  defp authenticate(conn, _operation, settings), do: authenticate(conn, settings)
+
+  defp authenticate(conn, %{wardrik: wardrik, authenticator: {module, config}}),
     do: module.authenticate(conn, wardrik, config)
+
+  defp alive?(conn, settings), do: fn -> match?({:ok, _scope}, authenticate(conn, settings)) end
+
+  defp upgradable(conn) do
+    case WebSockAdapter.UpgradeValidation.validate_upgrade(conn) do
+      :ok ->
+        :ok
+
+      {:error, _reason} ->
+        {:error, Error.new(:invalid_request, "Open /v1/workers as a WebSocket.")}
+    end
+  end
 
   defp respond(conn, scope, %{stream: true} = operation, input, settings) do
     case event_stream?(conn) do
@@ -131,11 +156,6 @@ defmodule WardrikHTTP do
     end
   end
 
-  defp stream_options(conn, input, %{authenticator: {module, config}} = settings) do
-    [
-      after: input["after"],
-      keepalive: settings.keepalive,
-      alive?: fn -> match?({:ok, _scope}, module.authenticate(conn, settings.wardrik, config)) end
-    ]
-  end
+  defp stream_options(conn, input, settings),
+    do: [after: input["after"], keepalive: settings.keepalive, alive?: alive?(conn, settings)]
 end
