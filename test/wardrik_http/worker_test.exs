@@ -93,6 +93,18 @@ defmodule WardrikHTTP.WorkerTest do
     assert_receive {:worker, %{"method" => "tools/list"}}
   end
 
+  test "ignores what doesn't read as JSON-RPC, and goes on", context do
+    worker = connect(context)
+
+    WebSockex.send_frame(worker, {:text, "not json"})
+    WebSockex.send_frame(worker, {:text, "[1, 2]"})
+    WebSockex.send_frame(worker, {:binary, <<0, 1>>})
+    Worker.send_message(worker, %{"id" => 99, "result" => %{}})
+    Worker.send_message(worker, %{"jsonrpc" => "2.0", "id" => "w3", "method" => "ping"})
+
+    assert_receive {:worker, %{"id" => "w3", "result" => %{}}}
+  end
+
   test "answers what it doesn't handle as a method not found", context do
     worker = connect(context)
 
