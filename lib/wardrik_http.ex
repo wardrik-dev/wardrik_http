@@ -64,7 +64,7 @@ defmodule WardrikHTTP do
     do: Response.json(conn, 200, WardrikProtocol.openapi())
 
   defp serve(%Plug.Conn{path_info: ["oauth" | rest]} = conn, %{wardrik: wardrik}),
-    do: sign_in(conn, rest, Wardrik.Instance.fetch!(wardrik))
+    do: sign_in(conn, rest, Wardrik.sign_in_pages(wardrik))
 
   defp serve(conn, settings) do
     with {:ok, segments} <- segments(conn.path_info),
@@ -77,10 +77,8 @@ defmodule WardrikHTTP do
     end
   end
 
-  defp sign_in(conn, _rest, %Wardrik{oauth: nil}), do: Response.error(conn, no_route())
-
-  defp sign_in(conn, rest, wardrik),
-    do: Plug.forward(conn, rest, WardrikOAuth.Plug, Wardrik.oauth(wardrik))
+  defp sign_in(conn, _rest, nil), do: Response.error(conn, no_route())
+  defp sign_in(conn, rest, {plug, opts}), do: Plug.forward(conn, rest, plug, opts)
 
   defp segments(path_info) do
     decoded = Enum.map(path_info, &URI.decode/1)
