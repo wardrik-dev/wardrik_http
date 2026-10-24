@@ -16,6 +16,7 @@ defmodule WardrikHTTP.RoutesTest do
   test "finds no route for a path no operation has" do
     assert Routes.match("GET", ["v1", "nothing"]) == :error
     assert Routes.match("PATCH", ["v1", "agents"]) == :error
+    assert Routes.match("POST", ~w(v1 agents acme triage C1 messages)) == :error
   end
 
   defp filled(template, agent) do

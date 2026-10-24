@@ -161,6 +161,29 @@ defmodule WardrikHTTPTest do
     end
   end
 
+  describe "channels" do
+    @tag channels: [slack: {WardrikHTTP.Test.Channel, []}]
+    test "hands a chat app's request to its channel as it came, and sends back its answer",
+         context do
+      conn =
+        "POST"
+        |> conn("/v1/channels/slack/events", ~s({"type":"url_verification"}))
+        |> put_req_header("x-slack-signature", "v0=abc")
+        |> WardrikHTTP.call(WardrikHTTP.init(wardrik: context.wardrik))
+
+      assert {conn.status, conn.resp_body} == {200, ~s(events {"type":"url_verification"} v0=abc)}
+      assert get_resp_header(conn, "content-type") == ["text/plain"]
+
+      conn =
+        WardrikHTTP.call(
+          conn("POST", "/v1/channels/teams/events", "{}"),
+          WardrikHTTP.init(wardrik: context.wardrik)
+        )
+
+      assert conn.status == 404
+    end
+  end
+
   describe "documents and pages" do
     test "answers the OpenAPI document", context do
       conn =

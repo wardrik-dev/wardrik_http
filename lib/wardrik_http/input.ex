@@ -1,8 +1,8 @@
 defmodule WardrikHTTP.Input do
   @moduledoc """
   Builds an operation's input from a request: its JSON body, its query, and its path parameters, in
-  that order, so a path parameter wins. A webhook's input is the request as it came, its raw body
-  and its headers.
+  that order, so a path parameter wins. A webhook's or a chat app's input is the request as it
+  came, its raw body and its headers.
   """
 
   alias Plug.Conn.Unfetched
@@ -20,7 +20,7 @@ defmodule WardrikHTTP.Input do
     end
   end
 
-  defp body(conn, %{subject: "hook"}) do
+  defp body(conn, %{subject: subject}) when subject in ["hook", "channel"] do
     with {:ok, raw, conn} <- raw(conn),
          do: {:ok, %{"body" => raw, "headers" => Map.new(conn.req_headers)}, conn}
   end

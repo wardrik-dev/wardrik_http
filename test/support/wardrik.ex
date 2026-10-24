@@ -18,7 +18,8 @@ defmodule WardrikHTTP.Test do
          store: store,
          deployment: "test",
          keys: [WardrikVault.generate_key()],
-         oauth: Map.get(context, :oauth)
+         oauth: Map.get(context, :oauth),
+         channels: Map.get(context, :channels, [])
        )}
     )
 
@@ -60,4 +61,21 @@ defmodule WardrikHTTP.Test do
   defp encoded(nil), do: ""
   defp encoded(body) when is_binary(body), do: body
   defp encoded(body), do: JSON.encode!(body)
+end
+
+defmodule WardrikHTTP.Test.Channel do
+  @moduledoc "A channel that answers each request with where it was sent, its body, and its signature."
+  @behaviour Wardrik.Channel
+
+  @impl Wardrik.Channel
+  def child_spec(_opts), do: %{id: __MODULE__, start: {Agent, :start_link, [fn -> nil end]}}
+
+  @impl Wardrik.Channel
+  def request(_opts, %{path: path, body: body, headers: headers}) do
+    %{
+      status: 200,
+      headers: %{"content-type" => "text/plain"},
+      body: "#{path} #{body} #{headers["x-slack-signature"]}"
+    }
+  end
 end

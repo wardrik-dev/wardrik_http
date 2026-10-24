@@ -18,7 +18,8 @@ defmodule WardrikHTTP do
   takes Bandit's options too, like `:port` and `:ip`.
 
   `GET /v1/openapi.json` answers the OpenAPI document, `GET /v1/workers` is the WebSocket a tool
-  worker holds open (see `WardrikHTTP.Worker`), and `/oauth/` serves the pages a sign-in comes back
+  worker holds open (see `WardrikHTTP.Worker`), `/v1/channels/{channel}/{path}` hands a chat
+  app's request to the Wardrik's channel of that name and sends back its answer, and `/oauth/` serves the pages a sign-in comes back
   to, where the Wardrik signs people in. Every answer carries a `request-id` header, the
   caller's own where it sent one.
 
@@ -109,8 +110,9 @@ defmodule WardrikHTTP do
 
   defp no_route, do: Error.new(:not_found, "There's no route here.")
 
-  defp authenticate(_conn, %{subject: "hook"}, %{wardrik: wardrik}),
-    do: {:ok, Wardrik.as(wardrik, "anonymous")}
+  defp authenticate(_conn, %{subject: subject}, %{wardrik: wardrik})
+       when subject in ["hook", "channel"],
+       do: {:ok, Wardrik.as(wardrik, "anonymous")}
 
   defp authenticate(conn, _operation, settings), do: authenticate(conn, settings)
 
@@ -135,6 +137,9 @@ defmodule WardrikHTTP do
       false -> Response.answer(conn, operation, Wardrik.run(scope, operation.id, input))
     end
   end
+
+  defp respond(conn, scope, %{subject: "channel"} = operation, input, _settings),
+    do: Response.relay(conn, Wardrik.run(scope, operation.id, input))
 
   defp respond(conn, scope, operation, input, _settings),
     do: Response.answer(conn, operation, Wardrik.run(scope, operation.id, input))
