@@ -19,10 +19,14 @@ defmodule WardrikHTTP.Routes do
 
   @doc """
   Returns the operation `method` and the decoded path `segments` name, with its path parameters, or
-  `:error`. An agent's key takes two segments, or three where the second starts with `@`.
+  `:error`. An agent's key takes two segments, or three where the second starts with `@`, and one
+  of its conversations follows it as `conversations/ID`.
 
       WardrikHTTP.Routes.match("POST", ["v1", "agents", "acme", "@jon", "triage", "messages"])
       #=> {:ok, %{id: "agent.ask", ...}, %{"agent" => "acme/@jon/triage"}}
+
+      WardrikHTTP.Routes.match("GET", ~w(v1 agents acme triage conversations C1 timeline))
+      #=> {:ok, %{id: "agent.timeline", ...}, %{"agent" => "acme/triage/C1"}}
   """
   @spec match(String.t(), [String.t()]) ::
           {:ok, WardrikProtocol.operation(), %{String.t() => String.t()}} | :error
@@ -43,11 +47,10 @@ defmodule WardrikHTTP.Routes do
 
   defp params([], [], params), do: {:ok, params}
 
-  defp params([:agent | pattern], [org, "@" <> _ = user, name | segments], params),
-    do: params(pattern, segments, Map.put(params, "agent", Enum.join([org, user, name], "/")))
-
-  defp params([:agent | pattern], [org, name | segments], params),
-    do: params(pattern, segments, Map.put(params, "agent", org <> "/" <> name))
+  defp params([:agent | pattern], segments, params) do
+    with {:ok, agent, rest} <- agent(segments),
+         do: params(pattern, rest, Map.put(params, "agent", agent))
+  end
 
   defp params([{:param, name} | pattern], [value | segments], params),
     do: params(pattern, segments, Map.put(params, name, value))
@@ -56,4 +59,13 @@ defmodule WardrikHTTP.Routes do
     do: params(pattern, segments, params)
 
   defp params(_pattern, _segments, _params), do: :error
+
+  defp agent([org, "@" <> _ = user, name | rest]), do: conversation([org, user, name], rest)
+  defp agent([org, name | rest]), do: conversation([org, name], rest)
+  defp agent(_segments), do: :error
+
+  defp conversation(key, ["conversations", id | rest]),
+    do: {:ok, Enum.join(key ++ [id], "/"), rest}
+
+  defp conversation(key, rest), do: {:ok, Enum.join(key, "/"), rest}
 end
