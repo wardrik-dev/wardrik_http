@@ -122,6 +122,7 @@ Wardrik sends it `initialize` and `tools/list`, then a `tools/call` for each cal
 {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
  "params": {"name": "refund_order", "arguments": {"order": "A1"},
             "_meta": {"agent": {"key": "acme/triage", "org": "acme", "name": "triage"},
+                      "run": "4bf92f3577b34da6a3ce929d0e0e4736",
                       "principal": "acme/@maria", "idempotencyKey": "call_1"}}}
 ```
 
@@ -138,6 +139,13 @@ Wardrik.Agent.define(scope, "acme/triage",
 The model sees it as `workers__refund_order`. A tool the worker doesn't mark `readOnlyHint` changes
 things, so the agent's policy decides it as it does any other. A result's `_meta.costUsd` is what
 the call cost, which a budget counts. See `WardrikHTTP.Worker` for the whole exchange.
+
+A worker's tools go when its socket does, and come back when it dials in again: each turn takes
+the tools offered as it starts, and each call goes to a worker connected then. A call whose worker
+went away, or didn't answer in a minute, may have run. It runs again, under the same
+`idempotencyKey`, where every worker offering the tool marks it `readOnlyHint` or
+`idempotentHint`, on whichever worker offers it by then. Otherwise it waits on a person as
+`in_doubt`, to approve running it again or deny it.
 
 ## Sign people in
 
