@@ -18,7 +18,8 @@ defmodule WardrikHTTP do
   takes Bandit's options too, like `:port` and `:ip`.
 
   `GET /v1/openapi.json` answers the OpenAPI document, `GET /v1/workers` is the WebSocket a tool
-  worker holds open (see `WardrikHTTP.Worker`), `/v1/channels/{channel}/{path}` hands a chat
+  worker holds open (see `WardrikHTTP.Worker`), answering `426` to a request with a good token that
+  isn't one, so a worker can check its token first, `/v1/channels/{channel}/{path}` hands a chat
   app's request to the Wardrik's channel of that name and sends back its answer, and `/oauth/` serves the pages a sign-in comes back
   to, where the Wardrik signs people in. Every answer carries a `request-id` header, the
   caller's own where it sent one.
@@ -66,11 +67,12 @@ defmodule WardrikHTTP do
     do: Response.json(conn, 200, WardrikProtocol.openapi())
 
   defp serve(%Plug.Conn{method: "GET", path_info: ["v1", "workers"]} = conn, settings) do
-    with :ok <- upgradable(conn),
-         {:ok, scope} <- authenticate(conn, settings) do
+    with {:ok, scope} <- authenticate(conn, settings),
+         :ok <- upgradable(conn) do
       worker = %{scope: scope, alive?: alive?(conn, settings), keepalive: settings.keepalive}
       WebSockAdapter.upgrade(conn, WardrikHTTP.Worker, worker, [])
     else
+      {:error, :upgrade_required} -> upgrade_required(conn)
       {:error, %Error{} = error} -> Response.error(conn, error)
     end
   end
@@ -127,8 +129,13 @@ defmodule WardrikHTTP do
         :ok
 
       {:error, _reason} ->
-        {:error, Error.new(:invalid_request, "Open /v1/workers as a WebSocket.")}
+        {:error, :upgrade_required}
     end
+  end
+
+  defp upgrade_required(conn) do
+    error = Error.new(:invalid_request, "Open /v1/workers as a WebSocket.")
+    Response.json(conn, 426, Error.json(error))
   end
 
   defp respond(conn, scope, %{stream: true} = operation, input, settings) do

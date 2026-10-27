@@ -124,11 +124,12 @@ defmodule WardrikHTTP.WorkerTest do
     assert_receive {:worker_closed, {:remote, 1008, "The token no longer works."}}
   end
 
-  test "refuses a socket without a token, and a request that isn't a WebSocket", context do
+  test "refuses a socket without a token, and asks a request with one to upgrade", context do
     assert {:error, %WebSockex.RequestError{code: 401}} =
              Worker.start(context.url, "wrk_nope", self())
 
-    assert request(context, "GET", "/v1/workers").status == 400
+    assert request(context, "GET", "/v1/workers").status == 426
+    assert request(%{context | secret: "wrk_nope"}, "GET", "/v1/workers").status == 401
   end
 
   defp connect(context) do
