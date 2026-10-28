@@ -1,53 +1,51 @@
 defmodule WardrikHTTP.EventStreamTest do
-  use ExUnit.Case, async: false
-  use Mimic
+  use ExUnit.Case, async: true
 
   import WardrikHTTP.Test
 
-  setup :set_mimic_global
-  setup :start_wardrik
+  alias WardrikTesting.Server
 
   setup context do
-    server = start_supervised!({WardrikHTTP, wardrik: context.wardrik, port: 0, keepalive: 20})
-    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+    name = :"server #{context.test}"
+    :ok = Server.start(name, secrets: ["wrk_good"])
 
-    request(context, "PUT", "/v1/agents/acme/triage", %{"model" => "anthropic:claude-haiku-4-5"})
-    %{url: "http://localhost:#{port}"}
+    http =
+      start_supervised!(
+        {WardrikHTTP, server: {Server, name}, port: 0, keepalive: 20},
+        id: :http
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(http)
+    %{name: name, secret: "wrk_good", url: "http://localhost:#{port}"}
   end
 
-  test "streams an agent's log, from what's written next", context do
-    answers([answer("Hello.")])
+  test "streams what its server streams, each event with its cursor as its id", context do
     stream = open(context, "/v1/agents/acme/triage/events?types=wardrik.run.completed")
 
-    request(context, "POST", "/v1/agents/acme/triage/messages", %{"content" => "Hi"})
+    assert_receive {:streamed, "agent.events",
+                    %{"agent" => "acme/triage", "types" => ["wardrik.run.completed"]}}
 
-    assert until(stream, "wardrik.run.completed") =~ ~r/^id: \S+\ndata: \{/m
+    assert until(stream, "wardrik.run.completed") =~ ~r/^id: cursor-1\ndata: \{/m
   end
 
   test "resumes after the Last-Event-ID", context do
-    answers([answer("Hello.")])
-    :ok = WardrikEvents.subscribe(Wardrik.events(Wardrik.Instance.fetch!(context.wardrik)), ["*"])
-
-    conn = request(context, "POST", "/v1/agents/acme/triage/messages", %{"content" => "Hi"})
-    %{"message" => %{"cursor" => cursor}} = body(conn)
-    assert_receive {WardrikEvents, _log, %{"type" => "wardrik.run.completed"}}
-
-    stream = open(context, "/v1/events?resources=acme/agent/*", [{"last-event-id", cursor}])
+    stream = open(context, "/v1/events", [{"last-event-id", "cursor-0"}])
+    assert_receive {:streamed, "events.list", %{"after" => "cursor-0"}}
     assert until(stream, "wardrik.run.completed")
   end
 
-  test "keeps a quiet stream open, and ends it once its token is revoked", context do
+  test "keeps a quiet stream open, and ends it once its token stops working", context do
     stream = open(context, "/v1/events")
     assert until(stream, ": keepalive")
 
-    {:ok, _token} = Wardrik.Tokens.revoke(context.owner, context.token)
-
+    Server.revoke(context.name, context.secret)
     assert ended(stream)
   end
 
   test "answers a page as JSON without Accept: text/event-stream", context do
     conn = request(context, "GET", "/v1/agents/acme/triage/events")
-    assert %{"events" => _events, "next" => _next} = body(conn)
+    assert %{"events" => _events} = body(conn)
+    assert_received {:ran, "agent.events", %{"agent" => "acme/triage"}}
   end
 
   test "answers why it can't stream as the protocol's error", context do

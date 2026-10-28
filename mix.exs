@@ -59,11 +59,11 @@ defmodule WardrikHTTP.MixProject do
 
   defp deps do
     [
-      {:wardrik, path: "../wardrik"},
+      {:wardrik_protocol, path: "../wardrik_protocol"},
       {:plug, "~> 1.16"},
       {:bandit, "~> 1.5"},
       {:websock_adapter, "~> 0.5"},
-      {:mimic, "~> 2.4", only: :test},
+      {:wardrik_testing, path: "../wardrik_testing", only: :test},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},

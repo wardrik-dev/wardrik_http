@@ -6,7 +6,7 @@ defmodule WardrikHTTP.Worker do
   It speaks JSON-RPC 2.0, one message to a text frame, as MCP `2025-06-18` says:
 
     1. Wardrik sends `initialize`, then `notifications/initialized` once the worker answers.
-    2. Wardrik sends `tools/list`, and offers what the worker lists with `Wardrik.Workers.offer/2`.
+    2. Wardrik sends `tools/list`, and offers what the worker lists through its server's `offer/2`.
        The worker sends `notifications/tools/list_changed` to be listed again.
     3. Wardrik sends `tools/call` for each call an agent makes, with the call's `_meta`, and the
        worker answers with a `CallToolResult`, and what the call cost as `_meta.costUsd`.
@@ -103,7 +103,7 @@ defmodule WardrikHTTP.Worker do
   defp answered(:initialize, _refused, state), do: {:stop, :normal, state}
 
   defp answered(:list, %{"result" => %{"tools" => tools}}, state) when is_list(tools) do
-    :ok = Wardrik.Workers.offer(state.scope, tools)
+    :ok = state.scope.server.offer(state.scope, tools)
     {:ok, state}
   end
 
@@ -111,7 +111,7 @@ defmodule WardrikHTTP.Worker do
 
   defp answered({call, monitor}, message, state) do
     Process.demonitor(monitor, [:flush])
-    :ok = Wardrik.Workers.answer(call, message)
+    :ok = state.scope.server.answer(call, message)
     {:ok, state}
   end
 

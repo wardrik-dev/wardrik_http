@@ -1,21 +1,19 @@
 defmodule WardrikHTTP do
   @moduledoc """
-  Serves a Wardrik over HTTP: every operation of `WardrikProtocol` at its route, each run with
-  `Wardrik.run/3`, and the operations that stream as server-sent events.
+  Serves Wardrik's operations over HTTP: every operation of `WardrikProtocol` at its route, each run
+  by the `Wardrik.Server` it's given, and the operations that stream as server-sent events. A
+  Wardrik serves itself with `Wardrik.HTTP`, which gives it what it needs.
 
-      children = [
-        MyApp.Wardrik,
-        {WardrikHTTP, wardrik: MyApp.Wardrik, port: 4000}
-      ]
+      children = [{WardrikHTTP, server: {Wardrik, MyApp.Wardrik}, port: 4000}]
 
-  It's a `Plug` too, for your app's router to forward a path to:
+  It's a `Plug` too, for your app's router to forward a path to.
 
-      forward "/agents", WardrikHTTP, wardrik: MyApp.Wardrik
-
-  It takes `:wardrik`, the instance it serves, `:authenticator`, a `WardrikHTTP.Authenticator` as
-  `{module, config}` (`WardrikHTTP.Bearer` unless set), and `:keepalive`, how many milliseconds an
-  event stream waits on nothing before it sends a comment, 15 seconds unless set. As a child, it
-  takes Bandit's options too, like `:port` and `:ip`.
+  It takes `:server`, what runs the operations and the Wardrik it runs them on, as `{module, name}`,
+  `:authenticator`, a `WardrikHTTP.Authenticator` as `{module, config}` (`WardrikHTTP.Bearer` unless
+  set), `:sign_in`, where the pages a sign-in comes back to are found, as `{module, function, args}`
+  answering `{plug, opts}` or `nil`, and `:keepalive`, how many milliseconds an event stream waits on
+  nothing before it sends a comment, 15 seconds unless set. As a child, it takes Bandit's options
+  too, like `:port` and `:ip`.
 
   `GET /v1/openapi.json` answers the OpenAPI document, `GET /v1/workers` is the WebSocket a tool
   worker holds open (see `WardrikHTTP.Worker`), answering `426` to a request with a good token that
@@ -37,7 +35,7 @@ defmodule WardrikHTTP do
   alias WardrikHTTP.Response
   alias WardrikHTTP.Routes
 
-  @own [:wardrik, :authenticator, :keepalive]
+  @own [:server, :authenticator, :sign_in, :keepalive]
   @request_id Plug.RequestId.init(http_header: "request-id")
 
   @doc "Returns a child spec that serves the Wardrik with Bandit, which takes the rest of `opts`."
@@ -50,15 +48,25 @@ defmodule WardrikHTTP do
   @impl Plug
   def init(opts) do
     opts
-    |> Keyword.validate!([:wardrik, authenticator: {WardrikHTTP.Bearer, []}, keepalive: 15_000])
+    |> Keyword.validate!([
+      :server,
+      authenticator: {WardrikHTTP.Bearer, []},
+      sign_in: nil,
+      keepalive: 15_000
+    ])
     |> Map.new()
-    |> wardrik!()
+    |> server!()
   end
 
-  defp wardrik!(%{wardrik: wardrik} = settings) when is_atom(wardrik), do: settings
+  defp server!(%{server: {module, name}} = settings) when is_atom(module) and is_atom(name),
+    do: settings
 
-  defp wardrik!(_settings),
-    do: raise(ArgumentError, "WardrikHTTP serves a Wardrik. Give it wardrik: MyApp.Wardrik.")
+  defp server!(_settings),
+    do:
+      raise(
+        ArgumentError,
+        "WardrikHTTP serves a Wardrik. Give it server: {Wardrik, MyApp.Wardrik}, or use Wardrik.HTTP."
+      )
 
   @impl Plug
   def call(conn, settings), do: conn |> Plug.RequestId.call(@request_id) |> serve(settings)
@@ -77,8 +85,8 @@ defmodule WardrikHTTP do
     end
   end
 
-  defp serve(%Plug.Conn{path_info: ["oauth" | rest]} = conn, %{wardrik: wardrik}),
-    do: sign_in(conn, rest, Wardrik.sign_in_pages(wardrik))
+  defp serve(%Plug.Conn{path_info: ["oauth" | rest]} = conn, %{sign_in: sign_in}),
+    do: sign_in(conn, rest, pages(sign_in))
 
   defp serve(conn, settings) do
     with {:ok, segments} <- segments(conn.path_info),
@@ -90,6 +98,9 @@ defmodule WardrikHTTP do
       {:error, %Error{} = error} -> Response.error(conn, error)
     end
   end
+
+  defp pages(nil), do: nil
+  defp pages({module, function, args}), do: apply(module, function, args)
 
   defp sign_in(conn, _rest, nil), do: Response.error(conn, no_route())
   defp sign_in(conn, rest, {plug, opts}), do: Plug.forward(conn, rest, plug, opts)
@@ -112,14 +123,14 @@ defmodule WardrikHTTP do
 
   defp no_route, do: Error.new(:not_found, "There's no route here.")
 
-  defp authenticate(_conn, %{subject: subject}, %{wardrik: wardrik})
+  defp authenticate(_conn, %{subject: subject}, %{server: {module, wardrik}})
        when subject in ["hook", "channel"],
-       do: {:ok, Wardrik.as(wardrik, "anonymous")}
+       do: {:ok, Wardrik.Scope.new(module, wardrik, "anonymous")}
 
   defp authenticate(conn, _operation, settings), do: authenticate(conn, settings)
 
-  defp authenticate(conn, %{wardrik: wardrik, authenticator: {module, config}}),
-    do: module.authenticate(conn, wardrik, config)
+  defp authenticate(conn, %{server: server, authenticator: {module, config}}),
+    do: module.authenticate(conn, server, config)
 
   defp alive?(conn, settings), do: fn -> match?({:ok, _scope}, authenticate(conn, settings)) end
 
@@ -141,15 +152,15 @@ defmodule WardrikHTTP do
   defp respond(conn, scope, %{stream: true} = operation, input, settings) do
     case event_stream?(conn) do
       true -> stream(conn, scope, operation, resumed(conn, input), settings)
-      false -> Response.answer(conn, operation, Wardrik.run(scope, operation.id, input))
+      false -> Response.answer(conn, operation, Wardrik.Scope.run(scope, operation.id, input))
     end
   end
 
   defp respond(conn, scope, %{subject: "channel"} = operation, input, _settings),
-    do: Response.relay(conn, Wardrik.run(scope, operation.id, input))
+    do: Response.relay(conn, Wardrik.Scope.run(scope, operation.id, input))
 
   defp respond(conn, scope, operation, input, _settings),
-    do: Response.answer(conn, operation, Wardrik.run(scope, operation.id, input))
+    do: Response.answer(conn, operation, Wardrik.Scope.run(scope, operation.id, input))
 
   defp event_stream?(conn),
     do: conn |> get_req_header("accept") |> Enum.any?(&String.contains?(&1, "text/event-stream"))
@@ -162,7 +173,7 @@ defmodule WardrikHTTP do
   end
 
   defp stream(conn, scope, operation, input, settings) do
-    case Wardrik.stream(scope, operation.id, input) do
+    case Wardrik.Scope.stream(scope, operation.id, input) do
       {:ok, events} -> EventStream.serve(conn, events, stream_options(conn, input, settings))
       {:error, error} -> Response.error(conn, error)
     end
