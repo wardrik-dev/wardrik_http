@@ -61,7 +61,7 @@ defmodule WardrikHTTP.MixProject do
     [
       sibling(:wardrik_protocol),
       {:plug, "~> 1.16"},
-      {:bandit, "~> 1.5"},
+      {:bandit, "~> 1.14 and >= 1.14.1"},
       {:websock_adapter, "~> 0.5"},
       sibling(:wardrik_testing, only: :test),
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
