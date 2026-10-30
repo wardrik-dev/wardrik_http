@@ -19,26 +19,26 @@ end
 Add `Wardrik.HTTP` to your supervision tree after Wardrik:
 
 ```elixir
-defmodule MyApp.Wardrik do
+defmodule MyApp.AgentRuntime do
   use Wardrik, otp_app: :my_app
 end
 
 # config/runtime.exs
-config :my_app, MyApp.Wardrik,
+config :my_app, MyApp.AgentRuntime,
   store: {WardrikStore.EKV, data_dir: "/var/lib/my_app"},
   keys: [System.fetch_env!("WARDRIK_KEY")]
 
 # application.ex
 children = [
-  MyApp.Wardrik,
-  {Wardrik.HTTP, wardrik: MyApp.Wardrik, port: 4000}
+  MyApp.AgentRuntime,
+  {Wardrik.HTTP, wardrik: MyApp.AgentRuntime, port: 4000}
 ]
 ```
 
 It also takes Bandit's options, like `:ip`. It serves plain HTTP, so put a TLS-terminating proxy
 in front of it on a network.
 
-`Wardrik.HTTP` passes `MyApp.Wardrik` to `WardrikHTTP` as its server. Use `WardrikHTTP` directly
+`Wardrik.HTTP` passes `MyApp.AgentRuntime` to `WardrikHTTP` as its server. Use `WardrikHTTP` directly
 only for a `Wardrik.Server` of your own.
 
 ## Make a token
@@ -46,7 +46,7 @@ only for a `Wardrik.Server` of your own.
 Every request sends an API token as `Authorization: Bearer`. Make one in IEx:
 
 ```elixir
-scope = MyApp.Wardrik.as("acme/@maria", roles: [:owner], resources: ["*"])
+scope = MyApp.AgentRuntime.as("acme/@maria", roles: [:owner], resources: ["*"])
 {:ok, issued} = Wardrik.Tokens.create(scope, name: "laptop", roles: ["owner"], resources: ["acme/*"])
 
 issued.secret
@@ -99,7 +99,7 @@ A trigger with a `webhook` receives requests at `POST /v1/hooks/{agent}/{trigger
 token. The request proves itself with the trigger's secret:
 
 ```elixir
-:ok = MyApp.Wardrik.put_secret("acme", "ISSUES_HOOK", System.fetch_env!("ISSUES_HOOK"))
+:ok = MyApp.AgentRuntime.put_secret("acme", "ISSUES_HOOK", System.fetch_env!("ISSUES_HOOK"))
 
 Wardrik.Agent.define(scope, "acme/triage",
   model: "anthropic:claude-haiku-4-5",
@@ -163,7 +163,7 @@ If Wardrik signs people in, `/oauth/` serves the pages a sign-in returns to. Set
 URL:
 
 ```elixir
-config :my_app, MyApp.Wardrik,
+config :my_app, MyApp.AgentRuntime,
   keys: [System.fetch_env!("WARDRIK_KEY")],
   oauth: [
     page: "https://agents.example.com/oauth",
@@ -186,7 +186,7 @@ See [Credentials and sign-ins](https://hexdocs.pm/wardrik/credentials.html).
 Forward a path to it from your router, in place of the child above:
 
 ```elixir
-forward "/agents", Wardrik.HTTP, wardrik: MyApp.Wardrik
+forward "/agents", Wardrik.HTTP, wardrik: MyApp.AgentRuntime
 ```
 
 Routes are then under `/agents`, as `/agents/v1/agents/acme/triage`. Sign-in pages are at
@@ -223,7 +223,7 @@ defmodule MyAppWeb.WardrikSession do
 end
 
 forward "/agents", Wardrik.HTTP,
-  wardrik: MyApp.Wardrik,
+  wardrik: MyApp.AgentRuntime,
   authenticator: {MyAppWeb.WardrikSession, []}
 ```
 

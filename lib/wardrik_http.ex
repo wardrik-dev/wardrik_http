@@ -4,11 +4,11 @@ defmodule WardrikHTTP do
 
   Most apps use `Wardrik.HTTP`, which sets `:server` and `:sign_in` for you:
 
-      children = [MyApp.Wardrik, {Wardrik.HTTP, wardrik: MyApp.Wardrik, port: 4000}]
+      children = [MyApp.AgentRuntime, {Wardrik.HTTP, wardrik: MyApp.AgentRuntime, port: 4000}]
 
   Use `WardrikHTTP` directly to serve any `Wardrik.Server`:
 
-      children = [{WardrikHTTP, server: {Wardrik, MyApp.Wardrik}, port: 4000}]
+      children = [{WardrikHTTP, server: {Wardrik, MyApp.AgentRuntime}, port: 4000}]
 
   It's also a `Plug`, so your router can forward a path to it.
 
@@ -81,7 +81,7 @@ defmodule WardrikHTTP do
     do:
       raise(
         ArgumentError,
-        "WardrikHTTP serves a Wardrik. Give it server: {Wardrik, MyApp.Wardrik}, or use Wardrik.HTTP."
+        "WardrikHTTP serves a Wardrik. Give it server: {Wardrik, MyApp.AgentRuntime}, or use Wardrik.HTTP."
       )
 
   @impl Plug

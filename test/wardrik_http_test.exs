@@ -96,7 +96,7 @@ defmodule WardrikHTTPTest do
     end
 
     test "needs a server to run its operations" do
-      assert_raise ArgumentError, ~r/server: \{Wardrik, MyApp.Wardrik\}/, fn ->
+      assert_raise ArgumentError, ~r/server: \{Wardrik, MyApp.AgentRuntime\}/, fn ->
         WardrikHTTP.init([])
       end
     end
