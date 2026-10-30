@@ -1,8 +1,9 @@
 defmodule WardrikHTTP.BodyReader do
   @moduledoc """
-  Keeps a request's body as it came while `Plug.Parsers` reads it, so a webhook's signature can be
-  checked over the exact bytes. Give it to `Plug.Parsers` where your app parses bodies ahead of
-  `WardrikHTTP`:
+  Keeps a request's raw body while `Plug.Parsers` reads it, so webhook signatures can be checked
+  over the exact bytes.
+
+  Use it if your app parses bodies before `WardrikHTTP` sees them:
 
       plug Plug.Parsers,
         parsers: [:json],
@@ -12,7 +13,7 @@ defmodule WardrikHTTP.BodyReader do
 
   import Plug.Conn
 
-  @doc "Reads the body as `Plug.Conn.read_body/2` does, and keeps what it read."
+  @doc "Reads the body as `Plug.Conn.read_body/2` does, and keeps a copy."
   @spec read_body(Plug.Conn.t(), keyword()) ::
           {:ok, binary(), Plug.Conn.t()} | {:more, binary(), Plug.Conn.t()} | {:error, term()}
   def read_body(conn, opts) do
@@ -23,7 +24,7 @@ defmodule WardrikHTTP.BodyReader do
     end
   end
 
-  @doc "Returns the body kept as it came, or `nil` where none was."
+  @doc "Returns the kept raw body, or `nil` if none was kept."
   @spec kept(Plug.Conn.t()) :: binary() | nil
   def kept(conn), do: conn.private[:wardrik_http_body]
 

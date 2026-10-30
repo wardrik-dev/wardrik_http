@@ -1,22 +1,22 @@
 # WardrikHTTP
 
-[Wardrik](https://hexdocs.pm/wardrik) over HTTP. Every operation is a JSON route, and agents'
-events stream as server-sent events that a client resumes after any disconnect.
+Serves [Wardrik](https://hexdocs.pm/wardrik) over HTTP. Every operation is a JSON route. Agents'
+events stream as server-sent events, which a client resumes after a disconnect.
 
 ## Install
 
 ```elixir
 def deps do
   [
-    {:wardrik, "~> 0.1"},
-    {:wardrik_http, "~> 0.1"}
+    {:wardrik, "~> 0.1.0-rc.1"},
+    {:wardrik_http, "~> 0.1.0-rc.1"}
   ]
 end
 ```
 
 ## Serve it
 
-Add it to your supervision tree after your Wardrik, and give it a port:
+Add `Wardrik.HTTP` to your supervision tree after Wardrik:
 
 ```elixir
 defmodule MyApp.Wardrik do
@@ -25,22 +25,25 @@ end
 
 # config/runtime.exs
 config :my_app, MyApp.Wardrik,
-  data_dir: "/var/lib/my_app",
+  store: {WardrikStore.EKV, data_dir: "/var/lib/my_app"},
   keys: [System.fetch_env!("WARDRIK_KEY")]
 
 # application.ex
 children = [
   MyApp.Wardrik,
-  {WardrikHTTP, wardrik: MyApp.Wardrik, port: 4000}
+  {Wardrik.HTTP, wardrik: MyApp.Wardrik, port: 4000}
 ]
 ```
 
-It takes Bandit's options too, like `ip:`. It speaks plain HTTP, so put something that ends TLS in
-front of it to reach it across a network.
+It also takes Bandit's options, like `:ip`. It serves plain HTTP, so put a TLS-terminating proxy
+in front of it on a network.
+
+`Wardrik.HTTP` passes `MyApp.Wardrik` to `WardrikHTTP` as its server. Use `WardrikHTTP` directly
+only for a `Wardrik.Server` of your own.
 
 ## Make a token
 
-Every request sends an API token as `Authorization: Bearer`. Make one from IEx:
+Every request sends an API token as `Authorization: Bearer`. Make one in IEx:
 
 ```elixir
 scope = MyApp.Wardrik.as("acme/@maria", roles: [:owner], resources: ["*"])
@@ -50,12 +53,12 @@ issued.secret
 #=> "wrk_3f9a61c0d4e2_Vb7..."
 ```
 
-The token acts for Maria, allowed what its roles and resources say. See
+The token acts for Maria, with the roles and resources it's given. See
 [Who may do what](https://hexdocs.pm/wardrik/access.html).
 
 ## Talk to agents
 
-Define an agent, ask it something, and follow its log:
+Define an agent, send it a message, and follow its log:
 
 ```sh
 export TOKEN=wrk_3f9a61c0d4e2_Vb7...
@@ -76,21 +79,24 @@ curl -N localhost:4000/v1/agents/acme/triage/events?after=eyJhY21lL3RyaWFnZSI6ND
 #=> data: {"specversion":"1.0","type":"wardrik.run.completed",...}
 ```
 
-An agent's key is its path: `acme/triage` for an org's own agent, and `acme/@maria/notes` for one
-that works for a person. Send each segment percent-encoded on its own.
+An agent's ID is its path: `acme/triage` for an org's agent, `acme/@maria/notes` for a person's.
+Percent-encode each segment on its own.
 
-Each event's `id` is a cursor. A stream starts after `Last-Event-ID` or `?after=`, and at what's
-written next without either. Without `Accept: text/event-stream`, the same route answers a page as
-JSON. A stream sends a comment every 15 seconds while nothing happens, and ends once its token is
-revoked.
+Event streams:
 
-Every route is in `GET /v1/openapi.json`, which a client generator reads. An error is the protocol's
-`{"error": {"type": ..., "message": ...}}`, and every answer carries a `request-id` header.
+* Each event's `id` is a cursor.
+* A stream starts after `Last-Event-ID` or `?after=`. With neither, it starts at the next event.
+* Without `Accept: text/event-stream`, the same route returns a page of events as JSON.
+* An idle stream sends a comment every 15 seconds.
+* A stream ends when its token is revoked.
+
+`GET /v1/openapi.json` lists every route, for client generators. Errors are the protocol's
+`{"error": {"type": ..., "message": ...}}`. Every response has a `request-id` header.
 
 ## Receive webhooks
 
-A trigger with a `webhook` is sent requests at `POST /v1/hooks/{agent}/{trigger}`, with no token.
-The request proves itself with the trigger's secret instead:
+A trigger with a `webhook` receives requests at `POST /v1/hooks/{agent}/{trigger}`. These need no
+token. The request proves itself with the trigger's secret:
 
 ```elixir
 :ok = MyApp.Wardrik.put_secret("acme", "ISSUES_HOOK", System.fetch_env!("ISSUES_HOOK"))
@@ -102,55 +108,59 @@ Wardrik.Agent.define(scope, "acme/triage",
 ```
 
 Point the service at `https://agents.example.com/v1/hooks/acme/triage/issues`. See
-[Trigger agents](https://hexdocs.pm/wardrik/triggers.html) for how a request proves itself.
+[Trigger agents](https://hexdocs.pm/wardrik/triggers.html) for how requests are verified.
 
 ## Run tools in your own process
 
-A tool worker is your own program offering agents tools. Its tools run in its process, with its code,
-data and keys, and it dials Wardrik, so Wardrik needs no way to reach it. Make it a token with the
-`worker` role, over the agents it serves:
+A tool worker is your own program offering agents tools. The tools run in its process, with its
+code, data and keys. The worker connects to Wardrik, so Wardrik never needs to reach it.
 
-```elixir
-{:ok, issued} =
-  Wardrik.Tokens.create(scope, name: "shop", roles: ["worker"], resources: ["acme/agent/*"])
-```
+1. Make it a token with the `worker` role over the agents it serves:
 
-The worker opens a WebSocket to `/v1/workers` with that token, and answers as an MCP server does.
-Wardrik sends it `initialize` and `tools/list`, then a `tools/call` for each call an agent makes:
+   ```elixir
+   {:ok, issued} =
+     Wardrik.Tokens.create(scope, name: "shop", roles: ["worker"], resources: ["acme/agent/*"])
+   ```
 
-```json
-{"jsonrpc": "2.0", "id": 3, "method": "tools/call",
- "params": {"name": "refund_order", "arguments": {"order": "A1"},
-            "_meta": {"agent": {"key": "acme/triage", "org": "acme", "name": "triage"},
-                      "run": "4bf92f3577b34da6a3ce929d0e0e4736",
-                      "principal": "acme/@maria", "idempotencyKey": "call_1"}}}
-```
+2. The worker opens a WebSocket to `/v1/workers` with that token and acts as an MCP server.
+   Wardrik sends `initialize` and `tools/list`, then a `tools/call` for each call an agent makes:
 
-An agent names the tools workers offer as `workers/*`:
+   ```json
+   {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+    "params": {"name": "refund_order", "arguments": {"order": "A1"},
+               "_meta": {"agent": {"key": "acme/triage", "org": "acme", "name": "triage"},
+                         "run": "4bf92f3577b34da6a3ce929d0e0e4736",
+                         "principal": "acme/@maria", "idempotencyKey": "call_1"}}}
+   ```
 
-```elixir
-Wardrik.Agent.define(scope, "acme/triage",
-  model: "anthropic:claude-haiku-4-5",
-  tools: ["workers/*"],
-  policy: [ask: ["workers/refund_order"]]
-)
-```
+3. Agents name workers' tools as `workers/*`:
 
-The model sees it as `workers__refund_order`. A tool the worker doesn't mark `readOnlyHint` changes
-things, so the agent's policy decides it as it does any other. A result's `_meta.costUsd` is what
-the call cost, which a budget counts. See `WardrikHTTP.Worker` for the whole exchange.
+   ```elixir
+   Wardrik.Agent.define(scope, "acme/triage",
+     model: "anthropic:claude-haiku-4-5",
+     tools: ["workers/*"],
+     policy: [ask: ["workers/refund_order"]]
+   )
+   ```
 
-A worker's tools go when its socket does, and come back when it dials in again: each turn takes
-the tools offered as it starts, and each call goes to a worker connected then. A call whose worker
-went away, or didn't answer in a minute, may have run. It runs again, under the same
-`idempotencyKey`, where every worker offering the tool marks it `readOnlyHint` or
-`idempotentHint`, on whichever worker offers it by then. Otherwise it waits on a person as
-`in_doubt`, to approve running it again or deny it.
+The model sees the tool as `workers__refund_order`. A tool without `readOnlyHint` counts as one
+that changes things, and the agent's policy decides it like any other. A result's
+`_meta.costUsd` is what the call cost, and budgets count it. See `WardrikHTTP.Worker` for the
+whole exchange.
+
+A worker's tools go when its socket closes and return when it reconnects. Each turn uses the tools
+offered when it starts. Each call goes to a worker connected at that moment.
+
+A call whose worker disconnects, or doesn't answer within a minute, may have run:
+
+* If every worker offering the tool marks it `readOnlyHint` or `idempotentHint`, the call runs
+  again on whichever worker offers it then, with the same `idempotencyKey`.
+* Otherwise it waits on a person as `in_doubt`, to approve running it again or deny it.
 
 ## Sign people in
 
-Where your Wardrik signs people in, `/oauth/` serves the pages a sign-in comes back to. Set its
-`page` to that path:
+If Wardrik signs people in, `/oauth/` serves the pages a sign-in returns to. Set `page` to that
+URL:
 
 ```elixir
 config :my_app, MyApp.Wardrik,
@@ -176,30 +186,33 @@ See [Credentials and sign-ins](https://hexdocs.pm/wardrik/credentials.html).
 Forward a path to it from your router, in place of the child above:
 
 ```elixir
-forward "/agents", WardrikHTTP, wardrik: MyApp.Wardrik
+forward "/agents", Wardrik.HTTP, wardrik: MyApp.Wardrik
 ```
 
-The routes are then under `/agents`, as `/agents/v1/agents/acme/triage`, and the sign-in pages are
-at `/agents/oauth`. A webhook's signature covers the exact bytes it was sent, so where your endpoint
-parses bodies first, have `Plug.Parsers` keep them:
+Routes are then under `/agents`, as `/agents/v1/agents/acme/triage`. Sign-in pages are at
+`/agents/oauth`.
+
+Webhook signatures cover the exact bytes sent. If your endpoint parses bodies first, have
+`Plug.Parsers` keep them:
 
 ```elixir
 plug Plug.Parsers,
   parsers: [:urlencoded, :multipart, :json],
   json_decoder: Phoenix.json_library(),
-  body_reader: {WardrikHTTP.BodyReader, :read_body, []}
+  body_reader: Wardrik.HTTP.body_reader()
 ```
 
 ## Your own sign-in
 
-To know requests by your app's own sessions in place of API tokens, give an authenticator:
+To authenticate requests by your app's own sessions in place of API tokens, give an
+authenticator. See `WardrikHTTP.Authenticator`.
 
 ```elixir
 defmodule MyAppWeb.WardrikSession do
   @behaviour WardrikHTTP.Authenticator
 
   @impl true
-  def authenticate(conn, wardrik, _config) do
+  def authenticate(conn, {_server, wardrik}, _config) do
     with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
          {:ok, id} <- Phoenix.Token.verify(MyAppWeb.Endpoint, "wardrik", token, max_age: 86_400) do
       {:ok, Wardrik.as(wardrik, id, roles: [:owner], resources: [id <> "/*"])}
@@ -209,7 +222,9 @@ defmodule MyAppWeb.WardrikSession do
   end
 end
 
-forward "/agents", WardrikHTTP, wardrik: MyApp.Wardrik, authenticator: {MyAppWeb.WardrikSession, []}
+forward "/agents", Wardrik.HTTP,
+  wardrik: MyApp.Wardrik,
+  authenticator: {MyAppWeb.WardrikSession, []}
 ```
 
 ## License

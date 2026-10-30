@@ -1,5 +1,5 @@
 defmodule WardrikHTTP.Response do
-  @moduledoc "Sends what an operation answers, or the protocol's `error` with its status."
+  @moduledoc "Sends an operation's output, or the protocol's `error` with its HTTP status."
 
   import Plug.Conn
 
@@ -16,14 +16,14 @@ defmodule WardrikHTTP.Response do
     unavailable: 503
   }
 
-  @doc "Sends what `operation` answered, with its status, or the error it failed with."
+  @doc "Sends `operation`'s output with its success status, or the error."
   @spec answer(Plug.Conn.t(), WardrikProtocol.operation(), {:ok, term()} | {:error, Error.t()}) ::
           Plug.Conn.t()
   def answer(conn, %{status: status}, {:ok, nil}), do: send_resp(conn, status, "")
   def answer(conn, %{status: status}, {:ok, output}), do: json(conn, status, output)
   def answer(conn, _operation, {:error, %Error{} = error}), do: error(conn, error)
 
-  @doc "Sends a channel's answer as it is, or the error it failed with."
+  @doc "Sends a channel's response unchanged, or the error."
   @spec relay(Plug.Conn.t(), {:ok, map()} | {:error, Error.t()}) :: Plug.Conn.t()
   def relay(conn, {:ok, %{"status" => status, "headers" => headers, "body" => body}}) do
     headers
@@ -33,7 +33,7 @@ defmodule WardrikHTTP.Response do
 
   def relay(conn, {:error, %Error{} = error}), do: error(conn, error)
 
-  @doc "Sends `error` with the status its type stands for."
+  @doc "Sends `error` with the HTTP status for its type, as `404` for `:not_found`."
   @spec error(Plug.Conn.t(), Error.t()) :: Plug.Conn.t()
   def error(conn, %Error{type: type} = error),
     do: conn |> challenge(type) |> json(Map.fetch!(@statuses, type), Error.json(error))

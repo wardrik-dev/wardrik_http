@@ -1,7 +1,9 @@
 defmodule WardrikHTTP.Bearer do
   @moduledoc """
-  Knows a request by the API token it sends, as `Authorization: Bearer wrk_...`, with
-  its server's `authenticate/2`.
+  Authenticates a request by its API token, sent as `Authorization: Bearer wrk_...`.
+
+  Checks the token with the server's `c:Wardrik.Server.authenticate/2`. Returns an `:unauthorized`
+  error if the header is missing.
   """
 
   @behaviour WardrikHTTP.Authenticator

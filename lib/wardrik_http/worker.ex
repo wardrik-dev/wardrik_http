@@ -1,19 +1,23 @@
 defmodule WardrikHTTP.Worker do
   @moduledoc """
-  A tool worker's WebSocket at `GET /v1/workers`, and Wardrik as the MCP client over it. A worker is
-  an MCP server that dials in, with a token whose scope may `agent.serve` the agents it serves.
+  The tool workers' WebSocket at `GET /v1/workers`. Wardrik is the MCP client over it.
 
-  It speaks JSON-RPC 2.0, one message to a text frame, as MCP `2025-06-18` says:
+  A worker is an MCP server that connects in. Its token's scope needs `agent.serve` on the agents
+  it serves.
 
-    1. Wardrik sends `initialize`, then `notifications/initialized` once the worker answers.
-    2. Wardrik sends `tools/list`, and offers what the worker lists through its server's `offer/2`.
-       The worker sends `notifications/tools/list_changed` to be listed again.
-    3. Wardrik sends `tools/call` for each call an agent makes, with the call's `_meta`, and the
-       worker answers with a `CallToolResult`, and what the call cost as `_meta.costUsd`.
-    4. A call Wardrik stops waiting on, or that's stopped, is sent `notifications/cancelled`.
+  Messages are JSON-RPC 2.0, one per text frame, as MCP `2025-06-18` specifies:
 
-  It answers a worker's `ping`, and pings it every `:keepalive` milliseconds. Each time, it asks
-  whether the token still works, and closes with `1008` once it doesn't.
+    1. Wardrik sends `initialize`. Once the worker answers, it sends `notifications/initialized`.
+    2. Wardrik sends `tools/list` and offers the listed tools through the server's
+       `c:Wardrik.Server.offer/2`. The worker sends `notifications/tools/list_changed` to be listed
+       again.
+    3. Wardrik sends `tools/call`, with the call's `_meta`, for each call an agent makes. The
+       worker answers with a `CallToolResult`, and the call's cost as `_meta.costUsd`.
+    4. Wardrik sends `notifications/cancelled` when it stops waiting on a call, or the call is
+       stopped.
+
+  It answers the worker's `ping`. It also pings the worker every `:keepalive` milliseconds and
+  checks that the token still works. It closes with `1008` once the token stops working.
   """
 
   @behaviour WebSock

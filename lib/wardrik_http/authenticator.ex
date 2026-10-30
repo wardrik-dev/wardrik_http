@@ -1,7 +1,8 @@
 defmodule WardrikHTTP.Authenticator do
   @moduledoc """
-  An authenticator says who a request comes from, as the `Wardrik.Scope` it acts in. It's given as
-  `{module, config}`, and `WardrikHTTP.Bearer` is the one used unless you give another.
+  A behaviour for deciding who a request comes from, as the `Wardrik.Scope` it acts in.
+
+  Pass one as `authenticator: {module, config}`. `WardrikHTTP.Bearer` is used unless set.
 
       defmodule MyAppWeb.WardrikSession do
         @behaviour WardrikHTTP.Authenticator
@@ -17,12 +18,14 @@ defmodule WardrikHTTP.Authenticator do
         end
       end
 
-  It's asked again while an event stream is open, and the stream ends once it refuses.
+  It's called again periodically while an event stream or worker socket is open. The connection
+  closes once it returns an error.
   """
 
   @doc """
-  Returns the scope the request `conn` acts in on the Wardrik `server` runs, given as `{module,
-  name}`, or why it has none.
+  Returns the scope the request `conn` acts in, or an error.
+
+  `server` is `{module, name}`: the `Wardrik.Server` module, and the instance name it runs.
   """
   @callback authenticate(conn :: Plug.Conn.t(), server :: {module(), atom()}, config :: term()) ::
               {:ok, Wardrik.Scope.t()} | {:error, Wardrik.Error.t()}

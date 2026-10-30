@@ -1,28 +1,44 @@
 defmodule WardrikHTTP do
   @moduledoc """
-  Serves Wardrik's operations over HTTP: every operation of `WardrikProtocol` at its route, each run
-  by the `Wardrik.Server` it's given, and the operations that stream as server-sent events. A
-  Wardrik serves itself with `Wardrik.HTTP`, which gives it what it needs.
+  Serves Wardrik's operations over HTTP.
+
+  Most apps use `Wardrik.HTTP`, which sets `:server` and `:sign_in` for you:
+
+      children = [MyApp.Wardrik, {Wardrik.HTTP, wardrik: MyApp.Wardrik, port: 4000}]
+
+  Use `WardrikHTTP` directly to serve any `Wardrik.Server`:
 
       children = [{WardrikHTTP, server: {Wardrik, MyApp.Wardrik}, port: 4000}]
 
-  It's a `Plug` too, for your app's router to forward a path to.
+  It's also a `Plug`, so your router can forward a path to it.
 
-  It takes `:server`, what runs the operations and the Wardrik it runs them on, as `{module, name}`,
-  `:authenticator`, a `WardrikHTTP.Authenticator` as `{module, config}` (`WardrikHTTP.Bearer` unless
-  set), `:sign_in`, where the pages a sign-in comes back to are found, as `{module, function, args}`
-  answering `{plug, opts}` or `nil`, and `:keepalive`, how many milliseconds an event stream waits on
-  nothing before it sends a comment, 15 seconds unless set. As a child, it takes Bandit's options
-  too, like `:port` and `:ip`.
+  ## Options
 
-  `GET /v1/openapi.json` answers the OpenAPI document, `GET /v1/workers` is the WebSocket a tool
-  worker holds open (see `WardrikHTTP.Worker`), answering `426` to a request with a good token that
-  isn't one, so a worker can check its token first, `/v1/channels/{channel}/{path}` hands a chat
-  app's request to the Wardrik's channel of that name and sends back its answer, and `/oauth/` serves the pages a sign-in comes back
-  to, where the Wardrik signs people in. Every answer carries a `request-id` header, the
-  caller's own where it sent one.
+    * `:server` - required. `{module, name}`: the `Wardrik.Server` module, and the instance name
+      it runs. Raises `ArgumentError` without it.
+    * `:authenticator` - a `WardrikHTTP.Authenticator`, as `{module, config}`.
+      `{WardrikHTTP.Bearer, []}` unless set.
+    * `:sign_in` - `{module, function, args}` returning the `{plug, opts}` that serves sign-in
+      pages, or `nil`. `nil` unless set.
+    * `:keepalive` - milliseconds an idle event stream waits before sending a comment. `15_000`.
 
-  Reach for this when people or programs outside your app talk to its agents.
+  As a child, it also takes Bandit's options, like `:port` and `:ip`.
+
+  ## Routes
+
+  | Route | Serves |
+  | --- | --- |
+  | each operation's route | every operation in `WardrikProtocol`, as JSON |
+  | the same, with `Accept: text/event-stream` | streaming operations, as server-sent events |
+  | `GET /v1/openapi.json` | the OpenAPI document |
+  | `GET /v1/workers` | the tool workers' WebSocket. See `WardrikHTTP.Worker`. |
+  | `POST /v1/channels/{channel}/{path}` | a chat app's request, relayed to the channel and back |
+  | `/oauth/*` | sign-in pages, from `:sign_in` |
+
+  `GET /v1/workers` returns `426` to a request with a valid token that isn't a WebSocket upgrade,
+  so a worker can check its token first.
+
+  Every response has a `request-id` header. It's the caller's own if the request sent one.
   """
 
   @behaviour Plug
@@ -38,7 +54,7 @@ defmodule WardrikHTTP do
   @own [:server, :authenticator, :sign_in, :keepalive]
   @request_id Plug.RequestId.init(http_header: "request-id")
 
-  @doc "Returns a child spec that serves the Wardrik with Bandit, which takes the rest of `opts`."
+  @doc "Returns a child spec that serves with Bandit. Options not listed above go to Bandit."
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
     {own, bandit} = Keyword.split(opts, @own)

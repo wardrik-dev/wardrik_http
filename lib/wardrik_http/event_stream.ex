@@ -1,23 +1,30 @@
 defmodule WardrikHTTP.EventStream do
   @moduledoc """
-  Sends what an operation streams as server-sent events, until the client goes or its credential
-  stops working.
+  Sends a streamed operation's events as server-sent events.
 
       id: eyJhY21lL3RyaWFnZSI6NDF9
       data: {"specversion":"1.0","type":"wardrik.run.completed",...}
 
-  An event that moves the reader's cursor is sent with that cursor as its `id`, so a client's
-  `Last-Event-ID` resumes after it. One that leaves it where it was, like a delta, is sent without
-  one. A comment is sent every `:keepalive` milliseconds while nothing happens, which keeps the
-  stream open through proxies and finds a client that's gone. Each time, `:alive?` is asked whether
-  the stream may go on.
+  * An event that moves the cursor is sent with the new cursor as its `id`. A client's
+    `Last-Event-ID` then resumes after it.
+  * An event that doesn't move the cursor, like a delta, has no `id`.
+  * While idle, a comment is sent every `:keepalive` milliseconds. This keeps proxies from closing
+    the stream and detects clients that have gone.
+  * Before each comment, `:alive?` is called. The stream ends if it returns `false`.
+
+  The stream also ends when the client disconnects.
   """
 
   import Plug.Conn
 
   @doc """
-  Streams `events`, as `{event, cursor}`, on `conn`. Takes `:after`, the cursor they're read after,
-  `:keepalive` and `:alive?`.
+  Streams `events`, as `{event, cursor}` pairs, on `conn`.
+
+  ## Options
+
+    * `:after` - the cursor the events are read after, or `nil`.
+    * `:keepalive` - required. Milliseconds of quiet before a comment is sent.
+    * `:alive?` - required. A zero-arity function. The stream ends when it returns `false`.
   """
   @spec serve(Plug.Conn.t(), Enumerable.t(), keyword()) :: Plug.Conn.t()
   def serve(conn, events, opts) do

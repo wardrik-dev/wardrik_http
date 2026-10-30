@@ -1,8 +1,15 @@
 defmodule WardrikHTTP.Input do
   @moduledoc """
-  Builds an operation's input from a request: its JSON body, its query, and its path parameters, in
-  that order, so a path parameter wins. A webhook's or a chat app's input is the request as it
-  came, its raw body and its headers.
+  Builds an operation's input from a request.
+
+  The input merges, in order, so later ones win:
+
+    1. the JSON body
+    2. the query string
+    3. the path parameters
+
+  For webhooks and channels, the input is the raw request instead: `"body"` and `"headers"`.
+  Bodies over 8 MB are refused.
   """
 
   alias Plug.Conn.Unfetched
@@ -11,7 +18,7 @@ defmodule WardrikHTTP.Input do
 
   @limit 8_000_000
 
-  @doc "Returns the input `operation` takes from `conn`, with the path `params` it was routed by."
+  @doc "Returns the input for `operation` from `conn` and the path `params` it was routed by."
   @spec build(Plug.Conn.t(), WardrikProtocol.operation(), map()) ::
           {:ok, map(), Plug.Conn.t()} | {:error, Error.t()}
   def build(conn, operation, params) do

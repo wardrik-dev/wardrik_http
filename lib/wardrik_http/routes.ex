@@ -1,7 +1,6 @@
 defmodule WardrikHTTP.Routes do
   @moduledoc """
-  Finds the operation a request names by its method and path, among the routes `WardrikProtocol`'s
-  OpenAPI document gives.
+  Matches a request's method and path to an operation in `WardrikProtocol`'s OpenAPI document.
   """
 
   segment = fn
@@ -18,9 +17,11 @@ defmodule WardrikHTTP.Routes do
           |> Enum.group_by(&elem(&1, 0), &Tuple.delete_at(&1, 0))
 
   @doc """
-  Returns the operation `method` and the decoded path `segments` name, with its path parameters, or
-  `:error`. An agent's key takes two segments, or three where the second starts with `@`, and one
-  of its conversations follows it as `conversations/ID`.
+  Returns the operation for `method` and the decoded path `segments`, with its path parameters, or
+  `:error`.
+
+  An agent ID takes two segments, or three if the second starts with `@`. A conversation follows
+  it as `conversations/ID`.
 
       WardrikHTTP.Routes.match("POST", ["v1", "agents", "acme", "@jon", "triage", "messages"])
       #=> {:ok, %{id: "agent.ask", ...}, %{"agent" => "acme/@jon/triage"}}
