@@ -4,7 +4,7 @@ defmodule WardrikHTTP.MixProject do
   def project do
     [
       app: :wardrik_http,
-      version: "0.1.0",
+      version: "0.1.0-rc.1",
       elixir: "~> 1.20",
       description:
         "Wardrik over HTTP: every operation as a JSON route, and agents' events as server-sent events.",
