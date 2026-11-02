@@ -11,7 +11,8 @@ defmodule WardrikHTTP.Authenticator do
         def authenticate(%{conn: conn, server: server, wardrik: wardrik}, _opts) do
           with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
                {:ok, id} <- Phoenix.Token.verify(MyAppWeb.Endpoint, "wardrik", token, max_age: 86_400) do
-            {:ok, Wardrik.Scope.new(server, wardrik, id, roles: [:owner], resources: [id <> "/*"])}
+            grants = [roles: [:owner], resources: [id <> "/*"]]
+            {:ok, Wardrik.Scope.new(server, wardrik: wardrik, principal: id, grants: grants)}
           else
             _not_signed_in -> {:error, Wardrik.Error.new(:unauthorized, "Sign in first.")}
           end

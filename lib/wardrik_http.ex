@@ -142,7 +142,7 @@ defmodule WardrikHTTP do
 
   defp authenticate(_conn, %{subject: subject}, %{server: {module, wardrik}})
        when subject in ["hook", "channel"],
-       do: {:ok, Wardrik.Scope.new(module, wardrik, "anonymous")}
+       do: {:ok, Wardrik.Scope.new(module, wardrik: wardrik, principal: "anonymous")}
 
   defp authenticate(conn, _operation, settings), do: authenticate(conn, settings)
 
