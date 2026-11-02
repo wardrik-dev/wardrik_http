@@ -46,6 +46,7 @@ defmodule WardrikHTTP do
   import Plug.Conn
 
   alias Wardrik.Error
+  alias WardrikHTTP.Authenticator
   alias WardrikHTTP.EventStream
   alias WardrikHTTP.Input
   alias WardrikHTTP.Response
@@ -145,8 +146,12 @@ defmodule WardrikHTTP do
 
   defp authenticate(conn, _operation, settings), do: authenticate(conn, settings)
 
-  defp authenticate(conn, %{server: server, authenticator: {module, config}}),
-    do: module.authenticate(conn, server, config)
+  defp authenticate(conn, %{server: {server, wardrik}, authenticator: {module, opts}}),
+    do:
+      module.authenticate(
+        %Authenticator.Request{conn: conn, server: server, wardrik: wardrik},
+        opts
+      )
 
   defp alive?(conn, settings), do: fn -> match?({:ok, _scope}, authenticate(conn, settings)) end
 

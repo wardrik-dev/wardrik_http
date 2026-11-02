@@ -212,7 +212,7 @@ defmodule MyAppWeb.WardrikSession do
   @behaviour WardrikHTTP.Authenticator
 
   @impl true
-  def authenticate(conn, {_server, wardrik}, _config) do
+  def authenticate(%{conn: conn, wardrik: wardrik}, _opts) do
     with ["Bearer " <> token] <- Plug.Conn.get_req_header(conn, "authorization"),
          {:ok, id} <- Phoenix.Token.verify(MyAppWeb.Endpoint, "wardrik", token, max_age: 86_400) do
       {:ok, Wardrik.as(wardrik, id, roles: [:owner], resources: [id <> "/*"])}
